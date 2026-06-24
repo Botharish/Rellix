@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: rillix-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DOWNLOAD_DIR
+        value: /tmp/downloads

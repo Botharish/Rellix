@@ -1,0 +1,21 @@
+# Render Blueprint for the Rillix engine (UI + API, or API-only behind Vercel).
+# Deploy: Render Dashboard → New → Blueprint → connect the repo containing this
+# file. If you push the PARENT repo, set the service Root Directory to the folder
+# holding this file (e.g. "rillix-nextjs").
+services:
+  - type: web
+    name: rillix-engine
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Free instances only have a writable /tmp.
+      - key: DOWNLOAD_DIR
+        value: /tmp/downloads
+      # Restrict who may call the engine. Set to your Vercel UI URL once known,
+      # e.g. https://rillix.vercel.app — leave "*" while testing.
+      - key: ALLOWED_ORIGIN
+        value: "*"
+      # Render injects PORT automatically; Next's `start` script honors it.

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+downloads/
+*.mp4
+*.mkv
+*.webm
+cookies.txt
+ffmpeg
+ffmpeg.exe
+.env
+venv/
+.venv/
+node_modules/
+.DS_Store
