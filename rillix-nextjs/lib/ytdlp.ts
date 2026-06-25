@@ -239,11 +239,49 @@ async function infoFromYouTubeApi(url: string): Promise<InfoResult | null> {
   }
 }
 
+async function infoFromYouTubePublic(url: string): Promise<InfoResult | null> {
+  const id = extractYouTubeId(url);
+  if (!id) return null;
+
+  let title = "YouTube video";
+  let uploader = "";
+  let thumbnail = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+
+  try {
+    const oembed =
+      `https://www.youtube.com/oembed?format=json&url=` +
+      encodeURIComponent(url);
+    const res = await fetch(oembed, {
+      headers: { "User-Agent": DESKTOP_UA },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      title = data?.title || title;
+      uploader = data?.author_name || uploader;
+      thumbnail = data?.thumbnail_url || thumbnail;
+    }
+  } catch {
+    // Thumbnail + generic metadata are still enough to show the preview controls.
+  }
+
+  return {
+    type: "single",
+    title,
+    thumbnail,
+    duration: "",
+    uploader,
+    platform: "YouTube",
+    available_heights: [1080, 720, 480, 360],
+  };
+}
+
 export async function getInfo(url: string): Promise<InfoResult> {
   // Prefer the official Data API for YouTube previews when a key is configured.
   if (isYouTube(url)) {
     const apiInfo = await infoFromYouTubeApi(url);
     if (apiInfo) return apiInfo;
+    const publicInfo = await infoFromYouTubePublic(url);
+    if (publicInfo) return publicInfo;
   }
 
   const extra = isYouTube(url)
