@@ -44,10 +44,17 @@ export function isYouTube(url: string): boolean {
   return /(youtube\.com|youtu\.be)/i.test(url);
 }
 
-function cookiesFile(): string {
-  // A cookies.txt placed at the project root enables age-restricted / private
-  // content, same as the original backend.
-  return path.join(process.cwd(), "cookies.txt");
+function cookiesFile(): string | null {
+  // Cookies enable age-restricted / private content and, crucially, get past
+  // YouTube's "confirm you're not a bot" check from datacenter IPs.
+  // Resolution order:
+  //   1. COOKIES_FILE env var (e.g. Render Secret File at /etc/secrets/cookies.txt)
+  //   2. cookies.txt in the project root (local dev)
+  const fromEnv = process.env.COOKIES_FILE;
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+  const local = path.join(process.cwd(), "cookies.txt");
+  if (fs.existsSync(local)) return local;
+  return null;
 }
 
 function baseArgs(): string[] {
@@ -58,7 +65,8 @@ function baseArgs(): string[] {
     "--ignore-config",
   ];
   if (FFMPEG_LOCATION) args.push("--ffmpeg-location", FFMPEG_LOCATION);
-  if (fs.existsSync(cookiesFile())) args.push("--cookies", cookiesFile());
+  const ck = cookiesFile();
+  if (ck) args.push("--cookies", ck);
   return args;
 }
 
@@ -409,9 +417,9 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
       }
       if (lastErr) {
         throw new Error(
-          fs.existsSync(cookiesFile())
+          cookiesFile() !== null
             ? lastErr.message
-            : "YouTube is blocking this server's IP. Add a cookies.txt file to the project root and try again. See README for instructions."
+            : "YouTube is blocking this server's IP. Add a cookies.txt (Render Secret File + COOKIES_FILE env var, or in the project root) and try again. See README."
         );
       }
     } else {
