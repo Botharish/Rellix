@@ -376,10 +376,20 @@ export interface DownloadResult {
   ext: string; // including leading dot
 }
 
-function formatSelector(quality: string): string {
-  return quality === "best"
-    ? "bestvideo+bestaudio/best"
-    : `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`;
+function formatSelectors(quality: string, audio: boolean): string[] {
+  if (audio) return ["bestaudio/best", "ba/b"];
+  if (quality === "best") {
+    return [
+      "bestvideo+bestaudio/best",
+      "18/best[ext=mp4]/best",
+      "best[height<=720]/best",
+    ];
+  }
+  return [
+    `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`,
+    `best[ext=mp4][height<=${quality}]/best[height<=${quality}]/18/best`,
+    "18/best[ext=mp4]/best",
+  ];
 }
 
 // Per-strategy extra args for the YouTube bot-detection fallback chain.
@@ -419,6 +429,11 @@ function isYoutubeCookieError(e: unknown): boolean {
   );
 }
 
+function isYoutubeForbiddenError(e: unknown): boolean {
+  const msg = String(e instanceof Error ? e.message : e).toLowerCase();
+  return msg.includes("http error 403") || msg.includes("forbidden");
+}
+
 async function writeRequestCookies(
   dir: string,
   uid: string,
@@ -430,6 +445,15 @@ async function writeRequestCookies(
   const file = path.join(dir, `${uid}.cookies.txt`);
   await fsp.writeFile(file, `${raw}\n`, "utf8");
   return file;
+}
+
+async function removeAttemptFiles(dir: string, uid: string): Promise<void> {
+  const names = await fsp.readdir(dir).catch(() => []);
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(uid + ".") && !name.endsWith(".cookies.txt"))
+      .map((name) => fsp.unlink(path.join(dir, name)).catch(() => {}))
+  );
 }
 
 function runOnce(
@@ -532,8 +556,6 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
 
   if (opts.audio) {
     commonArgs.push(
-      "-f",
-      "bestaudio/best",
       "-x",
       "--audio-format",
       "mp3",
@@ -541,7 +563,7 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
       "192K"
     );
   } else {
-    commonArgs.push("-f", formatSelector(opts.quality || "best"), "--merge-output-format", "mp4");
+    commonArgs.push("--merge-output-format", "mp4");
   }
 
   if (opts.playlistIndex !== undefined) {
@@ -560,30 +582,49 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
   try {
     if (isYouTube(opts.url)) {
       let lastErr: Error | null = null;
-      for (const strat of youtubeStrategies()) {
-        try {
-          await runOnce(
-            [...commonArgs, ...strat.extra, "--user-agent", strat.ua, opts.url],
-            opts.clientId
-          );
-          lastErr = null;
-          break;
-        } catch (e) {
-          if (e instanceof CancelError) throw e;
-          lastErr = e as Error;
-          // try next strategy
+      outer: for (const fmt of formatSelectors(opts.quality || "best", !!opts.audio)) {
+        for (const strat of youtubeStrategies()) {
+          try {
+            await runOnce(
+              [
+                ...commonArgs,
+                "-f",
+                fmt,
+                ...strat.extra,
+                "--user-agent",
+                strat.ua,
+                opts.url,
+              ],
+              opts.clientId
+            );
+            lastErr = null;
+            break outer;
+          } catch (e) {
+            if (e instanceof CancelError) throw e;
+            lastErr = e as Error;
+            await removeAttemptFiles(dir, uid);
+          }
         }
       }
       if (lastErr) {
         throw new Error(
           isYoutubeCookieError(lastErr)
             ? youtubeCookieError()
+            : isYoutubeForbiddenError(lastErr)
+            ? "YouTube blocked the media stream even after trying fallback formats. Refresh your YouTube cookies, paste the new cookies.txt contents, and retry."
             : lastErr.message
         );
       }
     } else {
       await runOnce(
-        [...commonArgs, "--user-agent", DESKTOP_UA, opts.url],
+        [
+          ...commonArgs,
+          "-f",
+          formatSelectors(opts.quality || "best", !!opts.audio)[0],
+          "--user-agent",
+          DESKTOP_UA,
+          opts.url,
+        ],
         opts.clientId
       );
     }
