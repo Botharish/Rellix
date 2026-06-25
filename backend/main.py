@@ -3,6 +3,7 @@ from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 import yt_dlp, uuid, os, json, asyncio, glob, threading, subprocess, sys, time, re, base64
+import urllib.parse, urllib.request
 
 app = FastAPI(title="Rillix", version="6.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -101,6 +102,35 @@ def is_youtube_cookie_error(err) -> bool:
         or "not a bot" in msg
         or "sign in" in msg and "cookies" in msg
     )
+
+def youtube_public_info(url: str):
+    video_id = extract_youtube_id(url)
+    if not video_id:
+        return None
+
+    title = "YouTube video"
+    uploader = ""
+    thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+    try:
+        oembed = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(url, safe="")
+        req = urllib.request.Request(oembed, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as res:
+            data = json.loads(res.read().decode("utf-8"))
+        title = data.get("title") or title
+        uploader = data.get("author_name") or uploader
+        thumbnail = data.get("thumbnail_url") or thumbnail
+    except Exception:
+        pass
+
+    return {
+        "type":"single",
+        "title":title,
+        "thumbnail":thumbnail,
+        "duration":"",
+        "uploader":uploader,
+        "platform":"YouTube",
+        "available_heights":[1080,720,480,360],
+    }
 
 active_downloads: dict = {}
 cancel_flags:     dict = {}
@@ -246,6 +276,11 @@ def cancel_dl(client_id: str):
 # ── Info ──────────────────────────────────────────────────────────────────────
 @app.get("/info")
 def get_info(url: str = Query(...)):
+    if is_youtube(url):
+        public_info = youtube_public_info(url)
+        if public_info:
+            return public_info
+
     opts = {
         "quiet": True, "no_warnings": True,
         "skip_download": True, "geo_bypass": True,

@@ -640,6 +640,13 @@ function setStatus(msg, type="info"){
   el.textContent=msg; el.className=type;
   el.style.display=msg?"block":"none";
 }
+function friendlyError(msg){
+  const m=(msg||"").toLowerCase();
+  if(m.includes("confirm you")||m.includes("not a bot")||(m.includes("sign in")&&m.includes("cookies"))){
+    return "YouTube is asking this server to confirm it is not a bot. Add YouTube cookies on Render, then redeploy.";
+  }
+  return msg||"Error";
+}
 function showPanel(show){
   const p=document.getElementById("result-panel");
   p.style.display=show?"block":"none";
@@ -693,7 +700,7 @@ async function fetchInfo(){
   try{
     const res=await fetch(`${BACKEND}/info?url=${encodeURIComponent(url)}`);
     const d=await res.json();
-    if(!res.ok) throw new Error(d.detail||"Error");
+    if(!res.ok) throw new Error(friendlyError(d.detail||"Error"));
 
     showPanel(true);
     if(d.type==="playlist"){
@@ -708,7 +715,7 @@ async function fetchInfo(){
     setStatus("","");
   }catch(e){
     showPanel(true);
-    setStatus("⚠ "+e.message,"error");
+    setStatus("⚠ "+friendlyError(e.message),"error");
   }finally{
     btn.disabled=false; btn.textContent="Fetch";
   }
@@ -776,7 +783,7 @@ async function doDownload(){
   try{
     const res=await fetch(ep);
     closeESS();
-    if(!res.ok){const e=await res.json();throw new Error(e.detail||"Error");}
+    if(!res.ok){const e=await res.json();throw new Error(friendlyError(e.detail||"Error"));}
     await save(res, isAudio?"audio.mp3":"video.mp4");
     document.getElementById("barFg").style.width="100%";
     document.getElementById("progPct").textContent="100%";
@@ -785,7 +792,7 @@ async function doDownload(){
   }catch(e){
     closeESS();
     if(!e.message.toLowerCase().includes("cancel"))
-      setStatus("⚠ "+e.message,"error");
+      setStatus("⚠ "+friendlyError(e.message),"error");
   }finally{
     btn.disabled=false;
     btn.innerHTML=`<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v11"/></svg> Download`;
@@ -877,13 +884,13 @@ async function doPlaylistDl(){
     try{
       const res=await fetch(ep);
       closeESS();
-      if(!res.ok){const e=await res.json();throw new Error(e.detail||"Error");}
+      if(!res.ok){const e=await res.json();throw new Error(friendlyError(e.detail||"Error"));}
       await save(res, (item.title||"item_"+idx)+(isAudio?".mp3":".mp4"));
       done++;
     }catch(e){
       closeESS();
       if(e.message.toLowerCase().includes("cancel")){cancelledP=true;break;}
-      setStatus(`⚠ Item ${idx+1} failed: ${e.message}`,"error");
+      setStatus(`⚠ Item ${idx+1} failed: ${friendlyError(e.message)}`,"error");
     }
   }
   document.getElementById("barFgP").style.width="100%";
