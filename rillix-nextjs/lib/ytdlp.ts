@@ -21,6 +21,7 @@ const DESKTOP_UA =
 const ANDROID_UA =
   "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip";
 const TIZEN_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0)";
+let envCookieFile: string | null = null;
 
 // Sentinel used in --progress-template so we can distinguish our progress lines
 // from any other text yt-dlp writes to stdout.
@@ -48,8 +49,30 @@ export function cookiesFile(): string | null {
   // Cookies enable age-restricted / private content and, crucially, get past
   // YouTube's "confirm you're not a bot" check from datacenter IPs.
   // Resolution order:
-  //   1. COOKIES_FILE env var (e.g. Render Secret File at /etc/secrets/cookies.txt)
-  //   2. cookies.txt in the project root (local dev)
+  //   1. YOUTUBE_COOKIES / COOKIES_TXT env var content
+  //   2. YOUTUBE_COOKIES_B64 / COOKIES_TXT_B64 base64 content
+  //   3. COOKIES_FILE env var (e.g. Render Secret File at /etc/secrets/cookies.txt)
+  //   4. cookies.txt in the project root (local dev)
+  if (envCookieFile && fs.existsSync(envCookieFile)) return envCookieFile;
+
+  let raw = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT || "";
+  const rawB64 = process.env.YOUTUBE_COOKIES_B64 || process.env.COOKIES_TXT_B64;
+  if (rawB64) {
+    try {
+      raw = Buffer.from(rawB64, "base64").toString("utf8");
+    } catch {
+      raw = "";
+    }
+  }
+  if (raw) {
+    if (raw.includes("\\n") && !raw.includes("\n")) raw = raw.replace(/\\n/g, "\n");
+    const dir = path.resolve(DOWNLOAD_DIR);
+    fs.mkdirSync(dir, { recursive: true });
+    envCookieFile = path.join(dir, "youtube-cookies.txt");
+    fs.writeFileSync(envCookieFile, `${raw.trim()}\n`, "utf8");
+    return envCookieFile;
+  }
+
   const candidates = [
     process.env.COOKIES_FILE, // explicit override
     "/etc/secrets/cookies.txt", // Render Secret File (auto-detected)
@@ -340,6 +363,23 @@ function cleanErr(s: string): string {
   return (line || s.trim()).slice(0, 400);
 }
 
+function youtubeCookieError(): string {
+  return (
+    "YouTube is asking this server to confirm it is not a bot. " +
+    "Add YouTube cookies on Render using COOKIES_FILE, YOUTUBE_COOKIES, " +
+    "or YOUTUBE_COOKIES_B64, then redeploy."
+  );
+}
+
+function isYoutubeCookieError(e: unknown): boolean {
+  const msg = String(e instanceof Error ? e.message : e).toLowerCase();
+  return (
+    msg.includes("confirm you") ||
+    msg.includes("not a bot") ||
+    (msg.includes("sign in") && msg.includes("cookies"))
+  );
+}
+
 function runOnce(
   args: string[],
   clientId: string
@@ -482,9 +522,9 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
       }
       if (lastErr) {
         throw new Error(
-          cookiesFile() !== null
-            ? lastErr.message
-            : "YouTube is blocking this server's IP. Add a cookies.txt (Render Secret File + COOKIES_FILE env var, or in the project root) and try again. See README."
+          isYoutubeCookieError(lastErr)
+            ? youtubeCookieError()
+            : lastErr.message
         );
       }
     } else {

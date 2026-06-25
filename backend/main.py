@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-import yt_dlp, uuid, os, json, asyncio, glob, threading, subprocess, sys, time, re
+import yt_dlp, uuid, os, json, asyncio, glob, threading, subprocess, sys, time, re, base64
 
 app = FastAPI(title="Rillix", version="6.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -46,8 +46,37 @@ def find_ffmpeg():
     return None
 
 ffmpeg_dir   = find_ffmpeg()
+_env_cookie_file = None
+
+def _write_cookie_env_file():
+    global _env_cookie_file
+    if _env_cookie_file and os.path.exists(_env_cookie_file):
+        return _env_cookie_file
+
+    raw = os.environ.get("YOUTUBE_COOKIES") or os.environ.get("COOKIES_TXT")
+    raw_b64 = os.environ.get("YOUTUBE_COOKIES_B64") or os.environ.get("COOKIES_TXT_B64")
+    if raw_b64:
+        try:
+            raw = base64.b64decode(raw_b64).decode("utf-8")
+        except Exception:
+            raw = None
+    if not raw:
+        return None
+
+    if "\\n" in raw and "\n" not in raw:
+        raw = raw.replace("\\n", "\n")
+
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    _env_cookie_file = os.path.join(DOWNLOAD_DIR, "youtube-cookies.txt")
+    with open(_env_cookie_file, "w", encoding="utf-8") as f:
+        f.write(raw.strip() + "\n")
+    return _env_cookie_file
 
 def cookies_file():
+    env_cookie = _write_cookie_env_file()
+    if env_cookie:
+        return env_cookie
+
     for candidate in [
         os.environ.get("COOKIES_FILE"),
         "/etc/secrets/cookies.txt",
@@ -57,6 +86,21 @@ def cookies_file():
         if candidate and os.path.exists(candidate):
             return candidate
     return None
+
+def youtube_cookie_error() -> str:
+    return (
+        "YouTube is asking this server to confirm it is not a bot. "
+        "Add YouTube cookies on Render using COOKIES_FILE, YOUTUBE_COOKIES, "
+        "or YOUTUBE_COOKIES_B64, then redeploy."
+    )
+
+def is_youtube_cookie_error(err) -> bool:
+    msg = str(err).lower()
+    return (
+        "confirm you" in msg
+        or "not a bot" in msg
+        or "sign in" in msg and "cookies" in msg
+    )
 
 active_downloads: dict = {}
 cancel_flags:     dict = {}
@@ -165,12 +209,10 @@ def download_url(url, fmt, out_path, client_id, extra_opts=None):
                 print(f"[Rillix] YouTube {name} client failed: {str(e)[:80]}")
 
         if cookies_file():
+            if is_youtube_cookie_error(last_error):
+                raise Exception(youtube_cookie_error())
             raise last_error
-        raise Exception(
-            "YouTube is blocking this server's IP. "
-            "Add cookies.txt via COOKIES_FILE, /etc/secrets/cookies.txt, "
-            "or the backend/project root and try again."
-        )
+        raise Exception(youtube_cookie_error())
     else:
         # Non-YouTube — direct download
         opts = make_opts(fmt, out_path, client_id)
@@ -260,6 +302,8 @@ def get_info(url: str = Query(...)):
             "available_heights":heights[:6],
         }
     except Exception as e:
+        if is_youtube(url) and is_youtube_cookie_error(e):
+            raise HTTPException(status_code=400, detail=youtube_cookie_error())
         raise HTTPException(status_code=400, detail=str(e))
 
 # ── Download video ────────────────────────────────────────────────────────────
@@ -348,7 +392,13 @@ def download_audio(
 
 @app.get("/health")
 def health():
-    return {"status":"ok","ffmpeg": ffmpeg_dir is not None}
+    cookie_path = cookies_file()
+    return {
+        "status":"ok",
+        "ffmpeg": ffmpeg_dir is not None,
+        "cookies": cookie_path is not None,
+        "cookies_path": cookie_path,
+    }
 
 @app.get("/")
 def root():

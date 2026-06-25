@@ -84,12 +84,22 @@ Just make sure `BACKEND_URL` in the HTML points to your deployed backend.
 |----------|---------|-------------|
 | `DOWNLOAD_DIR` | `downloads` | Where to save temp video files |
 | `PORT` | `8000` | Server port (auto-set by Railway/Render) |
+| `COOKIES_FILE` | unset | Path to a Netscape `cookies.txt` file |
+| `YOUTUBE_COOKIES` | unset | Full `cookies.txt` contents for hosts where secret files are awkward |
+| `YOUTUBE_COOKIES_B64` | unset | Base64 encoded `cookies.txt` contents |
 
 ---
 
 ## 🔧 Platform Authentication (Optional)
 
-For age-restricted or private content, add a `cookies.txt` file in the `backend/` directory. Export cookies from your browser using the [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) Chrome extension.
+For age-restricted, private, or bot-check-blocked YouTube content on Render/Railway, provide YouTube cookies. Export cookies in Netscape `cookies.txt` format from your browser, then configure one of:
+
+- Render Secret File mounted at `/etc/secrets/cookies.txt`
+- `COOKIES_FILE=/etc/secrets/cookies.txt`
+- `YOUTUBE_COOKIES=<full cookies.txt contents>`
+- `YOUTUBE_COOKIES_B64=<base64 cookies.txt contents>`
+
+After redeploying, check `/health`; `"cookies": true` means the backend can read them.
 
 ---
 
