@@ -96,6 +96,7 @@ export default function Downloader() {
   const [fetching, setFetching] = useState(false);
   const [status, setStatus] = useState<StatusMsg | null>(null);
   const [result, setResult] = useState<InfoResult | null>(null);
+  const [youtubeCookies, setYoutubeCookies] = useState("");
 
   // single
   const [fmt, setFmt] = useState<"video" | "audio">("video");
@@ -155,6 +156,24 @@ export default function Downloader() {
 
   useEffect(() => () => closeSSE(), [closeSSE]);
 
+  useEffect(() => {
+    try {
+      setYoutubeCookies(localStorage.getItem("rillix_youtube_cookies") || "");
+    } catch {
+      /* localStorage may be unavailable */
+    }
+  }, []);
+
+  const updateYoutubeCookies = useCallback((value: string) => {
+    setYoutubeCookies(value);
+    try {
+      if (value.trim()) localStorage.setItem("rillix_youtube_cookies", value);
+      else localStorage.removeItem("rillix_youtube_cookies");
+    } catch {
+      /* localStorage may be unavailable */
+    }
+  }, []);
+
   // Keep-alive: ping the engine every 4 min while this tab is open, so a free
   // host (e.g. Render) doesn't sleep mid-session. Harmless when same-origin.
   useEffect(() => {
@@ -178,6 +197,19 @@ export default function Downloader() {
     a.remove();
     URL.revokeObjectURL(a.href);
   }, []);
+
+  const downloadFetch = useCallback(
+    (endpoint: string) => {
+      const cookies = youtubeCookies.trim();
+      if (!cookies) return fetch(endpoint);
+      return fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookies }),
+      });
+    },
+    [youtubeCookies]
+  );
 
   // ── Fetch info ─────────────────────────────────────────────────────────────
   const fetchInfo = useCallback(async () => {
@@ -228,7 +260,7 @@ export default function Downloader() {
       : `${API_BASE}/api/download?url=${enc(u)}&client_id=${cid}&quality=${quality}`;
 
     try {
-      const res = await fetch(ep);
+      const res = await downloadFetch(ep);
       closeSSE();
       if (!res.ok) {
         const e = await res.json();
@@ -245,7 +277,7 @@ export default function Downloader() {
     } finally {
       setDownloading(false);
     }
-  }, [url, fmt, quality, startSSE, closeSSE, save]);
+  }, [url, fmt, quality, startSSE, closeSSE, save, downloadFetch]);
 
   const doCancel = useCallback(async () => {
     const cid = clientIdRef.current;
@@ -302,7 +334,7 @@ export default function Downloader() {
         ? `${API_BASE}/api/download-audio?url=${enc(pUrl)}&client_id=${cid}&index=${idx}`
         : `${API_BASE}/api/download?url=${enc(pUrl)}&client_id=${cid}&quality=best&index=${idx}`;
       try {
-        const res = await fetch(ep);
+        const res = await downloadFetch(ep);
         closeSSE();
         if (!res.ok) {
           const e = await res.json();
@@ -332,7 +364,7 @@ export default function Downloader() {
         type: "success",
       });
     setDlP(false);
-  }, [sel, result, fmtP, startSSE, closeSSE, save]);
+  }, [sel, result, fmtP, startSSE, closeSSE, save, downloadFetch]);
 
   const doCancelP = useCallback(() => {
     cancelledPRef.current = true;
@@ -690,6 +722,27 @@ export default function Downloader() {
           {status && (
             <div className={`status ${status.type}`}>{status.msg}</div>
           )}
+
+          <details className="cookie-box" open={status?.msg.includes("cookies")}>
+            <summary>YouTube cookies</summary>
+            <textarea
+              value={youtubeCookies}
+              onChange={(e) => updateYoutubeCookies(e.target.value)}
+              spellCheck={false}
+              placeholder="# Netscape HTTP Cookie File"
+            />
+            <div className="cookie-actions">
+              <span>{youtubeCookies.trim() ? "Saved in this browser" : "Optional"}</span>
+              {youtubeCookies.trim() && (
+                <button
+                  type="button"
+                  onClick={() => updateYoutubeCookies("")}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       )}
     </div>

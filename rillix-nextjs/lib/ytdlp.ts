@@ -368,6 +368,7 @@ export interface DownloadOpts {
   audio?: boolean;
   quality?: string; // "best" or a height like "720"
   playlistIndex?: number; // 0-based
+  cookiesText?: string;
 }
 
 export interface DownloadResult {
@@ -416,6 +417,19 @@ function isYoutubeCookieError(e: unknown): boolean {
     msg.includes("not a bot") ||
     (msg.includes("sign in") && msg.includes("cookies"))
   );
+}
+
+async function writeRequestCookies(
+  dir: string,
+  uid: string,
+  cookiesText?: string
+): Promise<string | null> {
+  let raw = cookiesText?.trim();
+  if (!raw) return null;
+  if (raw.includes("\\n") && !raw.includes("\n")) raw = raw.replace(/\\n/g, "\n");
+  const file = path.join(dir, `${uid}.cookies.txt`);
+  await fsp.writeFile(file, `${raw}\n`, "utf8");
+  return file;
 }
 
 function runOnce(
@@ -500,9 +514,11 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
   const dir = await ensureDownloadDir();
   const uid = cryptoRandom();
   const outTemplate = path.join(dir, `${uid}.%(ext)s`);
+  const requestCookieFile = await writeRequestCookies(dir, uid, opts.cookiesText);
 
   const commonArgs: string[] = [
     ...baseArgs(),
+    ...(requestCookieFile ? ["--cookies", requestCookieFile] : []),
     "-o",
     outTemplate,
     "--retries",
@@ -573,6 +589,7 @@ export async function download(opts: DownloadOpts): Promise<DownloadResult> {
     }
   } finally {
     clearCancel(opts.clientId);
+    if (requestCookieFile) await fsp.unlink(requestCookieFile).catch(() => {});
   }
 
   const matches = await findFiles(dir, uid + ".");

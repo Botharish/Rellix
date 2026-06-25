@@ -492,6 +492,60 @@ body {
 }
 
 /* ── Playlist picker ── */
+.cookie-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.cookie-box summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.cookie-box textarea {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(5, 6, 14, 0.72);
+  color: var(--text);
+  padding: 9px 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  outline: none;
+}
+.cookie-box textarea:focus {
+  border-color: rgba(124, 143, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(124, 143, 255, 0.12);
+}
+.cookie-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted2);
+  font-size: 0.72rem;
+}
+.cookie-actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.cookie-actions button:hover {
+  border-color: var(--border-h);
+  color: var(--text);
+}
+
 .picker-hdr {
   padding: 16px 18px 12px;
   border-bottom: 1px solid var(--border);
