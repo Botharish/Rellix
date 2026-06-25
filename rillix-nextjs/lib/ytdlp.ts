@@ -161,7 +161,68 @@ export interface InfoResult {
   }[];
 }
 
+export function extractYouTubeId(url: string): string | null {
+  const m = url.match(
+    /(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/
+  );
+  return m ? m[1] : null;
+}
+
+function iso8601ToClock(iso: string): string {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return "";
+  const h = parseInt(m[1] || "0", 10);
+  const min = parseInt(m[2] || "0", 10);
+  const s = parseInt(m[3] || "0", 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(min)}:${pad(s)}` : `${min}:${pad(s)}`;
+}
+
+// Build the preview straight from the YouTube Data API. Reliable even when
+// yt-dlp is blocked by the bot check, because the Data API is an official
+// Google endpoint. Returns null if no key / not a single video / API error,
+// so the caller can fall back to yt-dlp.
+async function infoFromYouTubeApi(url: string): Promise<InfoResult | null> {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return null;
+  const id = extractYouTubeId(url);
+  if (!id) return null;
+  try {
+    const api =
+      `https://www.googleapis.com/youtube/v3/videos` +
+      `?part=snippet,contentDetails&id=${id}&key=${key}`;
+    const res = await fetch(api);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const item = data?.items?.[0];
+    if (!item) return null;
+    const sn = item.snippet || {};
+    const th = sn.thumbnails || {};
+    const thumb =
+      th.maxres?.url || th.high?.url || th.medium?.url || th.default?.url || "";
+    return {
+      type: "single",
+      title: sn.title || "Unknown",
+      thumbnail: thumb,
+      duration: iso8601ToClock(item.contentDetails?.duration || ""),
+      uploader: sn.channelTitle || "",
+      platform: "YouTube",
+      // The Data API doesn't expose stream resolutions; offer common picks.
+      // yt-dlp clamps to the best available <= the chosen height at download.
+      available_heights: [1080, 720, 480, 360],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getInfo(url: string): Promise<InfoResult> {
+  // Prefer the official Data API for YouTube previews when a key is configured.
+  if (isYouTube(url)) {
+    const apiInfo = await infoFromYouTubeApi(url);
+    if (apiInfo) return apiInfo;
+  }
+
   const extra = isYouTube(url)
     ? ["--extractor-args", "youtube:player_client=android", "--user-agent", ANDROID_UA]
     : [];

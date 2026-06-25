@@ -28,5 +28,6 @@ export async function GET() {
     ytdlp_version: version,
     cookies: cookies !== null, // true once the engine can read your cookies file
     cookies_path: cookies, // null, or the resolved path it's using
+    youtube_api: !!process.env.YOUTUBE_API_KEY, // true once the API key is set
   });
 }
