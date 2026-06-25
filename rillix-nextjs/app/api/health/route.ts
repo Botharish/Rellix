@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { spawn } from "node:child_process";
-import { YTDLP_PATH } from "@/lib/ytdlp";
+import { YTDLP_PATH, cookiesFile } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,9 +21,12 @@ function ytdlpVersion(): Promise<string | null> {
 
 export async function GET() {
   const version = await ytdlpVersion();
+  const cookies = cookiesFile();
   return NextResponse.json({
     status: "ok",
     ytdlp: version !== null,
     ytdlp_version: version,
+    cookies: cookies !== null, // true once the engine can read your cookies file
+    cookies_path: cookies, // null, or the resolved path it's using
   });
 }

@@ -44,7 +44,7 @@ export function isYouTube(url: string): boolean {
   return /(youtube\.com|youtu\.be)/i.test(url);
 }
 
-function cookiesFile(): string | null {
+export function cookiesFile(): string | null {
   // Cookies enable age-restricted / private content and, crucially, get past
   // YouTube's "confirm you're not a bot" check from datacenter IPs.
   // Resolution order:
