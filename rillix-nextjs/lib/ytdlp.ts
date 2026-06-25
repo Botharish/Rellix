@@ -50,10 +50,14 @@ export function cookiesFile(): string | null {
   // Resolution order:
   //   1. COOKIES_FILE env var (e.g. Render Secret File at /etc/secrets/cookies.txt)
   //   2. cookies.txt in the project root (local dev)
-  const fromEnv = process.env.COOKIES_FILE;
-  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
-  const local = path.join(process.cwd(), "cookies.txt");
-  if (fs.existsSync(local)) return local;
+  const candidates = [
+    process.env.COOKIES_FILE, // explicit override
+    "/etc/secrets/cookies.txt", // Render Secret File (auto-detected)
+    path.join(process.cwd(), "cookies.txt"), // local dev / project root
+  ];
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) return c;
+  }
   return null;
 }
 
