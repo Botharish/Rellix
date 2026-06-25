@@ -323,9 +323,9 @@ function formatSelector(quality: string): string {
 // Per-strategy extra args for the YouTube bot-detection fallback chain.
 function youtubeStrategies(): { extra: string[]; ua: string }[] {
   return [
-    { extra: ["--extractor-args", "youtube:player_client=android"], ua: ANDROID_UA },
+    { extra: [], ua: DESKTOP_UA },
     { extra: ["--extractor-args", "youtube:player_client=tv_embedded"], ua: TIZEN_UA },
-    { extra: [], ua: DESKTOP_UA }, // default web client, last resort
+    { extra: ["--extractor-args", "youtube:player_client=android"], ua: ANDROID_UA },
   ];
 }
 

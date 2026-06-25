@@ -46,45 +46,31 @@ def find_ffmpeg():
     return None
 
 ffmpeg_dir   = find_ffmpeg()
-cookies_path = os.path.join(cur_dir, "cookies.txt")
+
+def cookies_file():
+    for candidate in [
+        os.environ.get("COOKIES_FILE"),
+        "/etc/secrets/cookies.txt",
+        os.path.join(cur_dir, "cookies.txt"),
+        os.path.join(os.getcwd(), "cookies.txt"),
+    ]:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
 
 active_downloads: dict = {}
 cancel_flags:     dict = {}
-
-# ── Invidious instances (public YouTube proxies — no login needed) ─────────────
-# These are community-run servers that proxy YouTube without bot detection
-INVIDIOUS_INSTANCES = [
-    "https://inv.nadeko.net",
-    "https://invidious.privacydev.net",
-    "https://yt.cdaut.de",
-    "https://invidious.nerdvpn.de",
-    "https://iv.datura.network",
-]
 
 def is_youtube(url: str) -> bool:
     return bool(re.search(r'(youtube\.com|youtu\.be)', url, re.I))
 
 def extract_youtube_id(url: str) -> str | None:
     patterns = [
-        r'(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})',
+        r'(?:v=|youtu\.be/|embed/|shorts/|live/)([A-Za-z0-9_-]{11})',
     ]
     for p in patterns:
         m = re.search(p, url)
         if m: return m.group(1)
-    return None
-
-def get_invidious_url(video_id: str) -> str | None:
-    """Try each Invidious instance until one works."""
-    import urllib.request
-    for instance in INVIDIOUS_INSTANCES:
-        try:
-            test_url = f"{instance}/api/v1/videos/{video_id}"
-            req = urllib.request.Request(test_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                if r.status == 200:
-                    return f"{instance}/watch?v={video_id}"
-        except:
-            continue
     return None
 
 def fmt_bytes(size):
@@ -116,7 +102,7 @@ def progress_hook(d, client_id):
             "total_size":"Merging…","downloaded":"","speed":"","eta":"",
         }
 
-def make_opts(fmt, out_path, client_id, extra={}):
+def make_opts(fmt, out_path, client_id, extra=None):
     opts = {
         "format": fmt,
         "outtmpl": out_path,
@@ -133,72 +119,58 @@ def make_opts(fmt, out_path, client_id, extra={}):
         },
     }
     if ffmpeg_dir: opts["ffmpeg_location"] = ffmpeg_dir
-    if os.path.exists(cookies_path): opts["cookiefile"] = cookies_path
-    opts.update(extra)
+    cookie_path = cookies_file()
+    if cookie_path: opts["cookiefile"] = cookie_path
+    if extra: opts.update(extra)
     return opts
 
-def download_url(url, fmt, out_path, client_id, extra_opts={}):
+def download_url(url, fmt, out_path, client_id, extra_opts=None):
     """
     Smart download:
-    - YouTube → try Invidious proxy first, then direct fallbacks
+    - YouTube → try high-quality direct clients first, then Android fallback
     - Other platforms → direct download
     """
+    extra_opts = extra_opts or {}
     if is_youtube(url):
-        vid_id = extract_youtube_id(url)
-
-        # Strategy 1: Invidious proxy (bypasses YouTube bot detection entirely)
-        if vid_id:
-            inv_url = get_invidious_url(vid_id)
-            if inv_url:
-                try:
-                    opts = make_opts(fmt, out_path, client_id, {
-                        "http_headers": {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                        }
-                    })
-                    opts.update(extra_opts)
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        ydl.download([inv_url])
-                    return
-                except Exception as e:
-                    if "Cancelled" in str(e): raise
-                    print(f"[Rillix] Invidious failed: {str(e)[:60]}, trying direct…")
-
-        # Strategy 2: Android client (often bypasses bot check)
-        try:
-            opts = make_opts(fmt, out_path, client_id, {
-                "extractor_args": {"youtube": {"player_client": ["android"]}},
+        strategies = [
+            ("web", {
                 "http_headers": {
-                    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 },
-            })
-            opts.update(extra_opts)
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            return
-        except Exception as e:
-            if "Cancelled" in str(e): raise
-            print(f"[Rillix] Android client failed: {str(e)[:60]}, trying TV…")
-
-        # Strategy 3: TV embedded client
-        try:
-            opts = make_opts(fmt, out_path, client_id, {
+            }),
+            ("TV", {
                 "extractor_args": {"youtube": {"player_client": ["tv_embedded"]}},
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0)"
                 },
-            })
-            opts.update(extra_opts)
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            return
-        except Exception as e:
-            if "Cancelled" in str(e): raise
-            raise Exception(
-                "YouTube is blocking this server's IP. "
-                "Please upload a cookies.txt file to the backend folder. "
-                "See README for instructions."
-            )
+            }),
+            ("Android", {
+                "extractor_args": {"youtube": {"player_client": ["android"]}},
+                "http_headers": {
+                    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+                },
+            }),
+        ]
+        last_error = None
+        for name, strategy in strategies:
+            try:
+                opts = make_opts(fmt, out_path, client_id, strategy)
+                opts.update(extra_opts)
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+                return
+            except Exception as e:
+                if "Cancelled" in str(e): raise
+                last_error = e
+                print(f"[Rillix] YouTube {name} client failed: {str(e)[:80]}")
+
+        if cookies_file():
+            raise last_error
+        raise Exception(
+            "YouTube is blocking this server's IP. "
+            "Add cookies.txt via COOKIES_FILE, /etc/secrets/cookies.txt, "
+            "or the backend/project root and try again."
+        )
     else:
         # Non-YouTube — direct download
         opts = make_opts(fmt, out_path, client_id)
@@ -232,31 +204,21 @@ def cancel_dl(client_id: str):
 # ── Info ──────────────────────────────────────────────────────────────────────
 @app.get("/info")
 def get_info(url: str = Query(...)):
-    fetch_url = url
-
-    # For YouTube, try Invidious first
-    if is_youtube(url):
-        vid_id = extract_youtube_id(url)
-        if vid_id:
-            inv_url = get_invidious_url(vid_id)
-            if inv_url:
-                fetch_url = inv_url
-
     opts = {
         "quiet": True, "no_warnings": True,
         "skip_download": True, "geo_bypass": True,
         "nocheckcertificate": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
         "http_headers": {
-            "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
     }
-    if os.path.exists(cookies_path): opts["cookiefile"] = cookies_path
+    cookie_path = cookies_file()
+    if cookie_path: opts["cookiefile"] = cookie_path
     if ffmpeg_dir: opts["ffmpeg_location"] = ffmpeg_dir
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(fetch_url, download=False)
+            info = ydl.extract_info(url, download=False)
 
         entries = info.get("entries")
         if entries:
